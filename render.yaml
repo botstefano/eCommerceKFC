@@ -10,7 +10,7 @@ services:
     branch: stefano
     envVars:
       - key: DATABASE_URL
-        value: postgresql://postgres:hmR6Tw78fq9w6fhj@db.vuwsitgcmwhlczgicock.supabase.co:5432/postgres
+        value: postgresql://postgres.vuwsitgcmwhlczgicock:hmR6Tw78fq9w6fhj@aws-1-us-east-2.pooler.supabase.com:6543/postgres
       - key: REDIS_URL
         value: rediss://default:gQAAAAAAAW7RAAIgcDI1NWYxZTYxNjZmMjY0YjVkYjM0YTdhYzZhM2ZjM2IzZg@right-coyote-93905.upstash.io:6379
       - key: JWT_SECRET
