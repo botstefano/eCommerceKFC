@@ -1,0 +1,45 @@
+services:
+  # Backend Service
+  - type: web
+    name: kfc-backend
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    plan: free
+    region: oregon
+    branch: stefano
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://postgres:hmR6Tw78fq9w6fhj@db.vuwsitgcmwhlczgicock.supabase.co:5432/postgres
+      - key: REDIS_URL
+        value: redis://default:gQAAAAAAAW7RAAIgcDI1NWYxZTYxNjZmMjY0YjVkYjM0YTdhYzZhM2ZjM2IzZg@right-coyote-93905.upstash.io:6379
+      - key: JWT_SECRET
+        value: super_secret_jwt_change_me_in_production
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: STRIPE_SECRET_KEY
+        value: sk_test_51_replace_with_your_stripe_test_secret_key
+      - key: GOOGLE_MAPS_API_KEY
+        value: replace_with_your_google_maps_api_key
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+
+  # Frontend Service
+  - type: web
+    name: kfc-frontend
+    env: docker
+    dockerContext: ./frontend
+    dockerfilePath: ./frontend/Dockerfile
+    plan: free
+    region: oregon
+    branch: stefano
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+        value: https://kfc-backend.onrender.com/api
+      - key: VITE_STRIPE_PUBLIC_KEY
+        value: pk_test_51_replace_with_your_stripe_test_public_key
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        value: replace_with_your_google_maps_api_key
