@@ -3,9 +3,9 @@ import Redis from "ioredis";
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
 export const redis = new Redis(REDIS_URL, {
-  maxRetriesPerRequest: 1,
-  retryStrategy: () => 1000,
-  lazyConnect: false,
+  maxRetriesPerRequest: 0,
+  retryStrategy: () => null,
+  lazyConnect: true,
   tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
 });
 
