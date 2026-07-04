@@ -3,45 +3,30 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kfc-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-kfc}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kfc_password}
       POSTGRES_DB: ${POSTGRES_DB:-kfc_ecommerce}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kfc}"]
       interval: 5s
       timeout: 5s
       retries: 10
-    networks:
-      - kfc-network
 
   redis:
     image: redis:7-alpine
-    container_name: kfc-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
-    networks:
-      - kfc-network
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: kfc-backend
     restart: unless-stopped
     depends_on:
       postgres:
@@ -56,21 +41,17 @@ services:
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-replace_me}
       REDIS_URL: redis://redis:6379
       PORT: 5000
-      NODE_ENV: development
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-    networks:
-      - kfc-network
-    command: sh -c "npx prisma db push && npx prisma db seed && npm start"
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: kfc-frontend
     restart: unless-stopped
     depends_on:
       - backend
@@ -78,18 +59,3 @@ services:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
       VITE_STRIPE_PUBLIC_KEY: ${VITE_STRIPE_PUBLIC_KEY:-pk_test_replace_me}
       VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-replace_me}
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    networks:
-      - kfc-network
-
-networks:
-  kfc-network:
-    driver: bridge
-
-volumes:
-  postgres-data:
-  redis-data:
