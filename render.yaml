@@ -37,7 +37,7 @@ services:
     branch: stefano
     envVars:
       - key: VITE_API_URL
-        value: https://kfc-backend.onrender.com/api
+        value: https://kfc-backend-nci0.onrender.com/api
       - key: VITE_STRIPE_PUBLIC_KEY
         value: pk_test_51_replace_with_your_stripe_test_public_key
       - key: VITE_GOOGLE_MAPS_API_KEY
