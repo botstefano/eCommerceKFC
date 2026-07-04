@@ -6,6 +6,7 @@ export const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: 1,
   retryStrategy: () => 1000,
   lazyConnect: false,
+  tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
 });
 
 redis.on("error", (err) => {

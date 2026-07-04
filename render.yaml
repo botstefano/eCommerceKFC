@@ -12,7 +12,7 @@ services:
       - key: DATABASE_URL
         value: postgresql://postgres:hmR6Tw78fq9w6fhj@db.vuwsitgcmwhlczgicock.supabase.co:5432/postgres
       - key: REDIS_URL
-        value: redis://default:gQAAAAAAAW7RAAIgcDI1NWYxZTYxNjZmMjY0YjVkYjM0YTdhYzZhM2ZjM2IzZg@right-coyote-93905.upstash.io:6379
+        value: rediss://default:gQAAAAAAAW7RAAIgcDI1NWYxZTYxNjZmMjY0YjVkYjM0YTdhYzZhM2ZjM2IzZg@right-coyote-93905.upstash.io:6379
       - key: JWT_SECRET
         value: super_secret_jwt_change_me_in_production
       - key: JWT_EXPIRES_IN
