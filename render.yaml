@@ -37,7 +37,6 @@ services:
     branch: stefano
     envVars:
       - key: VITE_API_URL
-        sync: false
         value: https://kfc-backend.onrender.com/api
       - key: VITE_STRIPE_PUBLIC_KEY
         value: pk_test_51_replace_with_your_stripe_test_public_key
