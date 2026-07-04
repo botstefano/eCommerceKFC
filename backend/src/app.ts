@@ -8,7 +8,10 @@ import { notFoundHandler, errorHandler } from "./middleware/errorHandler";
 export function createApp() {
   const app = express();
 
-  app.use(cors());
+  app.use(cors({
+    origin: ['http://localhost:5173', 'https://kfc-frontend.onrender.com', /.onrender.com$/],
+    credentials: true
+  }));
   app.use(express.json({ limit: "2mb" }));
   app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
