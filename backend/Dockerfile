@@ -10,8 +10,7 @@ RUN npm install
 COPY . .
 
 RUN npx prisma generate
-RUN npx prisma migrate deploy
 
 EXPOSE 5000
 
-CMD ["npx", "ts-node", "src/index.ts"]
+CMD sh -c "npx prisma migrate deploy && npx ts-node src/index.ts"
