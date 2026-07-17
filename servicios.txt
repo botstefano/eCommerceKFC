@@ -1,0 +1,513 @@
+# 🍗 PROMPT PARA CURSOR / WINDSURF: Implementar el "Sistema Inteligente de Gestión Operativa KFC"
+
+## Contexto (pega esto primero para que el agente entienda el estado del repo)
+
+Ya existe un proyecto funcional en este repositorio: una plataforma de e-commerce KFC
+(`kfc-ecommerce/`) con la siguiente arquitectura:
+
+- **Backend**: `backend/` — Node.js + Express + TypeScript + Prisma ORM + PostgreSQL + Redis.
+  Sigue el patrón `routes/` → `controllers/` → `services/` → `lib/` (prisma.ts, redis.ts).
+  El schema de datos vive en `backend/prisma/schema.prisma`. Ya existen los modelos `User`,
+  `Product`, `Cart`, `Order`, `Recommendation`, `Promotion`, `Favorite`, `Review`, `Branch`,
+  `SupportTicket`. Ya existe `backend/src/services/simulationService.ts` con funciones de
+  simulación (`simulateInventory`, `simulateTrafficByHour`, `simulateKitchenStaffing`,
+  `simulateDeliveryByZone`, `simulateMlVsNoMl`) y `backend/src/controllers/admin.controller.ts`
+  que las expone bajo `/api/admin/simulations/*`. Autenticación con JWT (`requireAuth`,
+  `requireAdmin` en `middleware/auth.ts`).
+- **Frontend**: `frontend/` — React + TypeScript + Vite + TailwindCSS + Zustand + Recharts.
+  Sigue el patrón `pages/` → `components/` → `store/` (Zustand) → `services/api.ts` (Axios).
+  Ya existe `frontend/src/pages/AdminPage.tsx` con pestañas: Dashboard, Productos, Pedidos,
+  Promociones, Simulaciones. Usa la paleta KFC definida en `tailwind.config.js`
+  (`kfc-red #C8102E`, `kfc-gold #FFC72C`, `kfc-black`, `kfc-cream`) y las clases utilitarias
+  `.btn-primary`, `.card`, `.input-field`, `.section-title` definidas en `src/index.css`.
+
+**No reescribas ni reestructures lo que ya existe.** Este prompt pide **extender** el proyecto
+agregando 4 módulos nuevos, tal como fueron definidos en el informe universitario "Análisis
+estratégico, organizacional, operativo y tecnológico de KFC Portal Pizarro" (sección 3.1,
+tabla "Servicios en Desarrollo / Propuestos", ítems 6-9), respetando el mismo estilo de
+código, convenciones de nombres y estructura de carpetas ya usadas en el repo.
+
+---
+
+## Objetivo general
+
+Implementar el **"Sistema Inteligente de Gestión Operativa KFC"** descrito en la sección 3.2
+del informe (Proyecto ITIL), compuesto por 4 módulos que se integran entre sí y se muestran
+en un dashboard gerencial unificado dentro del panel de administración ya existente:
+
+1. Sistema de Gestión de Inventario Automatizado
+2. Sistema de Predicción de Demanda Diaria con IA
+3. Sistema de Control de Estados en Producción de Pedidos
+4. Dashboard Gerencial Integrado
+
+El objetivo de negocio (según el informe) es reducir el tiempo de preparación en 25%,
+disminuir el desperdicio de insumos en 15% y mejorar el NPS en 10 puntos. El sistema debe
+alimentarse de los datos reales que ya genera la plataforma (`Order`, `Product`) para que las
+simulaciones y predicciones no sean solo mockups estáticos.
+
+---
+
+## Módulo 1 — Sistema de Gestión de Inventario Automatizado
+
+**Referencia del informe:** ítem 6 de la tabla de servicios propuestos. Funcionalidades
+pedidas explícitamente: (1) pedidos automáticos a proveedores, (2) descuento directo al
+inventario por cada venta en tiempo real, (3) subida de abastecimiento al sistema. SLA
+objetivo: disponibilidad 99.5%, precisión >99%, actualización en tiempo real, pedido
+automático cuando `stock < nivel mínimo`.
+
+### Backend
+
+- **Prisma schema** (`backend/prisma/schema.prisma`): agregar modelos nuevos, sin tocar los
+  existentes:
+  ```prisma
+  model Supplier {
+    id        String   @id @default(uuid())
+    name      String
+    contact   String?
+    email     String?
+    phone     String?
+    leadTimeDays Int   @default(3)
+    createdAt DateTime @default(now())
+    purchaseOrders PurchaseOrder[]
+  }
+
+  model PurchaseOrder {
+    id          String   @id @default(uuid())
+    supplierId  String
+    supplier    Supplier @relation(fields: [supplierId], references: [id])
+    productId   String
+    product     Product  @relation(fields: [productId], references: [id])
+    quantity    Int
+    status      String   @default("PENDING") // PENDING, SENT, RECEIVED, CANCELLED
+    isAutomatic Boolean  @default(false)
+    createdAt   DateTime @default(now())
+    receivedAt  DateTime?
+  }
+
+  model StockMovement {
+    id        String   @id @default(uuid())
+    productId String
+    product   Product  @relation(fields: [productId], references: [id])
+    type      String   // SALE, RESTOCK, ADJUSTMENT, WASTE
+    quantity  Int      // negativo para salidas, positivo para entradas
+    reason    String?
+    createdAt DateTime @default(now())
+  }
+  ```
+  Agregar las relaciones inversas correspondientes en el modelo `Product` (`purchaseOrders`,
+  `stockMovements`).
+
+- **Nuevo servicio** `backend/src/services/inventoryService.ts`:
+  - `registerSale(productId, quantity)`: se llama automáticamente desde
+    `order.controller.ts` (dentro de `createOrder`, junto al `prisma.product.update` con
+    `stock: { decrement }` que ya existe) para crear un `StockMovement` de tipo `SALE`.
+    **No dupliques el decremento de stock**, solo agrega el registro de movimiento.
+  - `checkReorderThresholds()`: recorre productos, calcula un nivel mínimo (puedes reusar la
+    lógica ya existente en `simulateInventory` de `simulationService.ts` — MISMO criterio de
+    `criticalThreshold` y `leadTimeDays`), y por cada producto bajo el umbral crea
+    automáticamente un `PurchaseOrder` con `isAutomatic: true` si no existe ya uno `PENDING`
+    para ese producto (evitar duplicados).
+  - `receivePurchaseOrder(purchaseOrderId, receivedQuantity)`: marca la orden como
+    `RECEIVED`, incrementa `Product.stock`, y crea un `StockMovement` tipo `RESTOCK`. Esta es
+    la función de "subida de abastecimiento al sistema".
+  - `getStockMovements(productId?, limit?)`: lista histórico de movimientos para auditoría.
+
+- **Nuevo controlador** `backend/src/controllers/inventory.controller.ts` +
+  **rutas** `backend/src/routes/inventory.routes.ts` (montadas bajo `/api/admin/inventory`,
+  protegidas con `requireAuth, requireAdmin`, siguiendo el mismo patrón que
+  `admin.routes.ts`):
+  - `GET /api/admin/inventory/movements` — historial de movimientos
+  - `GET /api/admin/inventory/purchase-orders` — lista de órdenes de compra (filtrable por
+    `status`)
+  - `POST /api/admin/inventory/purchase-orders/:id/receive` — recibe mercancía (body:
+    `{ receivedQuantity }`)
+  - `POST /api/admin/inventory/check-reorder` — dispara manualmente
+    `checkReorderThresholds()` (para poder probarlo desde el frontend sin esperar al cron)
+  - `GET /api/admin/inventory/suppliers` y `POST /api/admin/inventory/suppliers` — CRUD básico
+    de proveedores
+
+- **Tarea programada**: agregar un `setInterval` simple en `backend/src/server.ts` (no uses
+  librerías externas de cron para no añadir dependencias innecesarias) que ejecute
+  `checkReorderThresholds()` cada 15 minutos en background, con manejo de errores que no
+  tumbe el servidor.
+
+- **Seed**: en `backend/prisma/seed.ts`, agregar 4-5 `Supplier` de ejemplo (pollo, papas,
+  bebidas, empaques) y algunos `StockMovement` históricos por producto para que el módulo no
+  arranque vacío.
+
+### Frontend
+
+- En `frontend/src/pages/AdminPage.tsx`, agregar una nueva pestaña **"Inventario"** (icono
+  `Package` de `lucide-react`, ya importado en el archivo) junto a las existentes.
+- Nuevo componente `InventoryTab` (puede vivir en el mismo archivo, siguiendo el patrón de
+  `ProductsTab`, `OrdersTab`, etc. que ya están definidos ahí como funciones):
+  - Tabla de stock con semáforo de estado (reusa el mismo esquema de colores que ya existe en
+    `InventorySim`: rojo=CRÍTICO, amarillo=ATENCIÓN, verde=OK).
+  - Tabla de órdenes de compra pendientes/automáticas con botón "Marcar como recibido" que
+    abre un input de cantidad y llama a `POST /purchase-orders/:id/receive`.
+  - Botón "Revisar umbrales ahora" que llama a `POST /check-reorder` y refresca la tabla.
+  - Gráfico de línea (Recharts, mismo estilo que el resto del admin) mostrando movimientos de
+    stock de un producto seleccionado en el tiempo.
+
+---
+
+## Módulo 2 — Sistema de Predicción de Demanda Diaria con IA (con carga de datasets y modelo ML real)
+
+**Referencia del informe:** ítem 7. Analiza históricos, clima, feriados, promociones y
+temporadas para predecir demanda por hora. SLA: precisión >85%, predicción diaria <5 min,
+actualización diaria y en tiempo real.
+
+> **Alcance de este módulo (actualizado):** a diferencia de las simulaciones ya existentes en
+> `simulationService.ts` (que son heurísticas y está bien que sigan así), este módulo **sí debe
+> entrenar un modelo de Machine Learning real** a partir de un dataset que el administrador
+> puede subir (CSV), y usar ese modelo entrenado — no un promedio hardcodeado — para generar
+> las predicciones. El pipeline completo es: **subir dataset → validar/parsear → entrenar →
+> persistir el modelo → predecir con el modelo entrenado → medir precisión real (MAE/RMSE/R²)
+> contra un set de validación**. Si no hay ningún modelo entrenado todavía, el sistema debe
+> hacer fallback automático al enfoque heurístico de `simulateTrafficByHour` (no debe romperse
+> ni mostrar pantallas vacías) y dejarlo claramente etiquetado en la UI como "modo heurístico
+> (sin modelo entrenado)".
+
+### Elección técnica de la librería ML
+
+El backend es Node/TypeScript — implementa el entrenamiento **en el mismo proceso Node**, sin
+levantar un microservicio Python (para no añadir otro contenedor a `docker-compose.yml`).
+Usa una librería JS de regresión/ML ligera y instalable vía npm, por ejemplo:
+
+- `ml-regression-multivariate-linear` (regresión lineal multivariable) para el modelo base, y
+- `ml-random-forest` como alternativa más robusta a probar si el tiempo lo permite
+  (selecciona automáticamente el que tenga mejor R² en el set de validación).
+
+Agrega la dependencia elegida a `backend/package.json`. Si el agente evalúa que ninguna
+librería JS disponible es adecuada, puede implementar manualmente una regresión lineal por
+mínimos cuadrados (álgebra simple, sin dependencias) — pero debe ser un ajuste de parámetros
+real sobre los datos subidos, no un promedio simple.
+
+### Formato del dataset esperado (CSV)
+
+Define y documenta (en el propio código y en el README) el esquema de columnas que el sistema
+acepta, por ejemplo:
+
+```csv
+date,hour,dayOfWeek,isWeekend,isHoliday,hasPromotion,temperatureC,category,ordersCount,revenue
+2026-06-01,12,1,0,0,1,24,Pollo,38,684.20
+2026-06-01,13,1,0,0,1,26,Pollo,45,812.50
+...
+```
+
+- `date`, `hour`, `dayOfWeek`, `isWeekend`, `isHoliday`, `hasPromotion`, `temperatureC` →
+  features de entrada.
+- `category` → puede tratarse como feature categórica (one-hot encoding simple) o entrenar un
+  modelo por categoría.
+- `ordersCount` (o `revenue`) → variable objetivo (target) a predecir.
+
+Si el archivo subido no calza con este esquema, el sistema debe rechazarlo con un mensaje de
+error claro indicando qué columnas faltan (usa el mismo patrón de `ApiError` que ya existe en
+el proyecto), sin intentar adivinar el formato.
+
+### Backend
+
+- **Prisma schema**: agregar
+  ```prisma
+  model Dataset {
+    id          String   @id @default(uuid())
+    name        String
+    fileName    String
+    rowCount    Int
+    uploadedBy  String
+    columns     Json     // nombres de columnas detectadas
+    status      String   @default("UPLOADED") // UPLOADED, VALIDATED, INVALID
+    createdAt   DateTime @default(now())
+    trainedModels DemandModel[]
+  }
+
+  model DemandModel {
+    id              String   @id @default(uuid())
+    datasetId       String
+    dataset         Dataset  @relation(fields: [datasetId], references: [id])
+    algorithm       String   // "linear_regression" | "random_forest" | "heuristic_fallback"
+    version         Int      @default(1)
+    parameters      Json     // coeficientes/pesos serializados del modelo entrenado
+    featureColumns  Json     // qué columnas se usaron como input
+    targetColumn    String
+    mae             Float?   // Mean Absolute Error sobre el set de validación
+    rmse            Float?
+    r2Score         Float?
+    trainRowCount   Int
+    validationRowCount Int
+    isActive        Boolean  @default(false) // solo un modelo activo a la vez
+    trainedAt       DateTime @default(now())
+  }
+
+  model DemandForecast {
+    id              String   @id @default(uuid())
+    modelId         String?
+    model           DemandModel? @relation(fields: [modelId], references: [id])
+    forDate         DateTime
+    hour            Int
+    category        String?
+    predictedOrders Float
+    actualOrders    Int?
+    createdAt       DateTime @default(now())
+  }
+  ```
+  Agrega la relación inversa `forecasts DemandForecast[]` en `DemandModel`.
+
+- **Manejo de archivos**: agrega `multer` como dependencia para recibir el CSV vía
+  `multipart/form-data` (guárdalo temporalmente, p. ej. en `backend/uploads/`, que debe estar
+  en `.gitignore`). Usa `papaparse` o `csv-parse` para parsear el CSV en el backend (si usas
+  `papaparse`, ya está en las dependencias del frontend — instálalo también en `backend`).
+
+- **Nuevo servicio** `backend/src/services/datasetService.ts`:
+  - `uploadDataset(filePath, name, uploadedBy)`: parsea el CSV, valida el esquema de columnas
+    esperado, cuenta filas válidas/inválidas, persiste un registro `Dataset` con
+    `status: "VALIDATED"` (o `"INVALID"` con el motivo si falla), y guarda las filas
+    parseadas en un archivo JSON en disco referenciado por `dataset.id` (no metas miles de
+    filas crudas directamente en Postgres como JSON gigante en una sola columna; usa un
+    archivo `backend/uploads/datasets/{datasetId}.json`).
+  - `getDatasetPreview(datasetId, limit = 20)`: devuelve las primeras N filas para que el
+    admin pueda verificar visualmente que se subió bien antes de entrenar.
+  - `listDatasets()`.
+  - `deleteDataset(datasetId)`.
+
+- **Nuevo servicio** `backend/src/services/mlTrainingService.ts`:
+  - `trainModel(datasetId, algorithm: "linear_regression" | "random_forest")`:
+    1. Carga las filas del dataset desde el archivo JSON.
+    2. Hace un split 80/20 train/validation (shuffle determinístico con seed fija para
+       reproducibilidad).
+    3. Construye la matriz de features (`X`) y el vector objetivo (`y`) según
+       `featureColumns`/`targetColumn`.
+    4. Entrena el modelo con la librería elegida.
+    5. Evalúa sobre el set de validación: calcula `MAE`, `RMSE` y `R²` manualmente (fórmulas
+       estándar, no hace falta librería extra para esto).
+    6. Serializa los parámetros entrenados (coeficientes, o la estructura de árboles si es
+       random forest) en el campo `parameters` (JSON).
+    7. Guarda el `DemandModel`, y si su R² es mejor que el del modelo `isActive` actual (o si
+       no hay ninguno activo), lo marca como `isActive: true` y desactiva el anterior.
+    Devuelve el `DemandModel` creado con sus métricas.
+  - `predictWithModel(modelId, inputFeatures)`: reconstruye el modelo desde `parameters`
+    guardados y genera una predicción puntual.
+  - `getActiveModel()`: devuelve el `DemandModel` con `isActive: true` más reciente, o `null`.
+
+- **Actualiza/crea** `backend/src/services/demandForecastService.ts`:
+  - `forecastDemandByHour(date?: Date)`:
+    1. Llama a `mlTrainingService.getActiveModel()`.
+    2. **Si hay un modelo activo**: construye el vector de features para cada hora del día
+       (usando el `date` dado, día de semana derivado, si hay `Promotion` activa ese día, y
+       un `weatherFactor`/`temperatureC` opcional pasado por el caller con default razonable)
+       y llama a `predictWithModel()` por cada hora. Marca la respuesta con
+       `source: "ml_model"` y el `modelId`/`algorithm` usado.
+    3. **Si NO hay modelo activo**: cae al comportamiento heurístico ya existente (reusa
+       `simulateTrafficByHour` de `simulationService.ts`) y marca la respuesta con
+       `source: "heuristic_fallback"`.
+    4. Persiste cada predicción como `DemandForecast` para poder medir precisión real después.
+  - `forecastDemandByProduct(date?: Date)`: mismo patrón, a nivel de categoría de producto si
+    el dataset subido incluye la columna `category`; si no, deja este método en fallback
+    heurístico y dilo explícitamente en la respuesta (`source`).
+  - `getForecastAccuracy(modelId?)`: compara `DemandForecast.predictedOrders` vs
+    `actualOrders` (que se debe ir completando comparando contra pedidos reales de `Order` una
+    vez pasa el día — agrega una función `backfillActualOrders(date)` que se pueda llamar
+    manualmente o desde el mismo `setInterval` que ya se sugiere en el Módulo 1).
+
+- **Controlador + rutas** `backend/src/controllers/forecast.controller.ts` /
+  `backend/src/routes/forecast.routes.ts`, bajo `/api/admin/forecast` (protegido con
+  `requireAuth, requireAdmin`):
+  - `POST /api/admin/forecast/datasets/upload` — recibe el CSV (multer, campo `file`), llama a
+    `uploadDataset`.
+  - `GET /api/admin/forecast/datasets` — lista datasets subidos con su estado.
+  - `GET /api/admin/forecast/datasets/:id/preview` — preview de filas.
+  - `DELETE /api/admin/forecast/datasets/:id`.
+  - `POST /api/admin/forecast/train` — body `{ datasetId, algorithm }`, dispara
+    `trainModel()`. Debe responder solo cuando el entrenamiento termine (para datasets
+    razonablemente pequeños, tipo unos miles de filas, esto es aceptable de forma síncrona;
+    documenta esta limitación en el código).
+  - `GET /api/admin/forecast/models` — historial de modelos entrenados con sus métricas
+    (`mae`, `rmse`, `r2Score`), ordenados por fecha, indicando cuál está `isActive`.
+  - `POST /api/admin/forecast/models/:id/activate` — permite al admin forzar manualmente cuál
+    modelo usar (por si quiere volver a una versión anterior).
+  - `GET /api/admin/forecast/hourly?date=YYYY-MM-DD` — predicción por hora (usa modelo activo
+    o fallback).
+  - `GET /api/admin/forecast/by-product?date=YYYY-MM-DD`.
+  - `GET /api/admin/forecast/accuracy?modelId=...`.
+
+- **Seed**: en `backend/prisma/seed.ts` (o en un script separado
+  `backend/prisma/seed-sample-dataset.ts` para no complicar el seed principal), genera un CSV
+  de ejemplo sintético con unos 500-1000 registros siguiendo el esquema de columnas definido
+  arriba, derivado de patrones plausibles (usa la misma lógica de picos de almuerzo/cena que
+  ya existe en `simulateTrafficByHour` para que el dataset sintético sea coherente), y déjalo
+  en `backend/prisma/sample-data/demand-history.csv` para que el admin pueda probarlo
+  inmediatamente subiéndolo desde la UI sin tener que buscar datos externos.
+
+### Frontend
+
+- Nueva pestaña **"Predicción de Demanda"** en `AdminPage.tsx` (icono `TrendingUp`), con 3
+  sub-secciones dentro de la misma pestaña (puedes usar un sub-tab interno, mismo patrón que
+  ya usa `SimulationsTab` con su selector `sim`):
+
+  1. **Datasets**: tabla de datasets subidos (nombre, filas, estado, fecha). Botón "Subir
+     dataset" que abre un `<input type="file" accept=".csv">` y hace `POST` con
+     `FormData`/`multipart` vía Axios (`api.post('/admin/forecast/datasets/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })`).
+     Al subir, muestra un preview (tabla de primeras 20 filas) antes de confirmar.
+  2. **Entrenamiento**: selector de dataset ya subido + selector de algoritmo
+     (`linear_regression` / `random_forest`), botón "Entrenar modelo". Mientras entrena,
+     muestra un loader (reusa `Loader.tsx`). Al terminar, muestra una tarjeta con las métricas
+     del modelo resultante (MAE, RMSE, R²) y un botón para activarlo si no quedó activo
+     automáticamente. Debajo, tabla de histórico de modelos entrenados con badge "Activo" en
+     el que corresponda.
+  3. **Predicciones**: gráfico de línea/área (Recharts) de demanda predicha por hora para la
+     fecha seleccionada, con un badge visible indicando `Modelo ML (${algoritmo})` o
+     `Modo heurístico (sin modelo entrenado)` según el campo `source` que devuelve la API —
+     **esto es importante, no ocultes cuándo el sistema está en fallback**. Tarjeta de
+     "Precisión del modelo" mostrando MAE/R² del modelo activo. Tabla de "Productos con mayor
+     demanda esperada hoy" conectada visualmente al módulo de Inventario.
+
+---
+
+## Módulo 3 — Sistema de Control de Estados en Producción de Pedidos
+
+**Referencia del informe:** ítem 8. Tablero de cocina en tiempo real: `Recibido → En
+Preparación → Control de Calidad → Listo → Entregado`. SLA: actualización en tiempo real,
+detección de cuellos de botella.
+
+> Nota importante: el `Order.status` que ya existe en el schema usa
+> `PENDING/PREPARING/READY/ON_THE_WAY/DELIVERED/CANCELLED/REFUNDED`. **No dupliques ese
+> enum.** Este módulo es una vista operativa de cocina que mapea esos mismos estados a las
+> etiquetas de producción del informe (`Recibido`=PENDING, `En Preparación`=PREPARING,
+> `Control de Calidad`=un sub-estado nuevo dentro de PREPARING, `Listo`=READY,
+> `Entregado`=DELIVERED). Para soportar "Control de Calidad" como paso intermedio sin romper
+> el flujo de estados ya validado en `order.controller.ts` (`VALID_TRANSITIONS`), agrega un
+> campo nuevo en vez de un estado nuevo.
+
+### Backend
+
+- **Prisma schema**: agregar a `Order`:
+  ```prisma
+  qualityCheckedAt DateTime?
+  kitchenStartedAt DateTime?
+  kitchenReadyAt   DateTime?
+  ```
+- **Servicio** `backend/src/services/kitchenService.ts`:
+  - `getKitchenBoard()`: devuelve todos los pedidos con `status` en
+    `PENDING/PREPARING/READY`, ordenados por prioridad (usa la misma lógica de "urgente" que
+    ya insinúa el dashboard del informe: pedidos más antiguos primero, o con
+    `scheduledTime` próximo primero), incluyendo tiempo transcurrido desde `createdAt` y
+    desde `kitchenStartedAt`.
+  - `startPreparation(orderId)`: setea `kitchenStartedAt = now()` y cambia `status` a
+    `PREPARING` (reusa `updateOrderStatus` de `order.controller.ts` si aplica, no dupliques la
+    validación de transiciones).
+  - `markQualityChecked(orderId)`: setea `qualityCheckedAt = now()`. No cambia `status`
+    todavía (el pedido sigue `PREPARING` hasta que esté físicamente listo).
+  - `markReady(orderId)`: setea `kitchenReadyAt = now()`, cambia `status` a `READY`.
+  - `getBottlenecks()`: calcula, sobre pedidos de las últimas 24h, el tiempo promedio entre
+    `createdAt`→`kitchenStartedAt` (espera antes de empezar) y
+    `kitchenStartedAt`→`kitchenReadyAt` (tiempo real de preparación), comparado contra
+    `preparationTime` esperado de cada `Product`. Marca como "cuello de botella" cualquier
+    pedido cuyo tiempo real supere en 50% al esperado.
+
+- **Controlador + rutas** `backend/src/controllers/kitchen.controller.ts` /
+  `backend/src/routes/kitchen.routes.ts`, bajo `/api/admin/kitchen` (protegido con
+  `requireAuth, requireAdmin` — en un local real esto lo vería el equipo de cocina, pero para
+  esta demo se mantiene dentro del panel admin):
+  - `GET /api/admin/kitchen/board`
+  - `POST /api/admin/kitchen/:orderId/start`
+  - `POST /api/admin/kitchen/:orderId/quality-check`
+  - `POST /api/admin/kitchen/:orderId/ready`
+  - `GET /api/admin/kitchen/bottlenecks`
+
+### Frontend
+
+- Nueva pestaña **"Cocina en Tiempo Real"** en `AdminPage.tsx` (icono `ChefHat` o
+  `UtensilsCrossed`, ya usado en `OrderTypeSelector.tsx`).
+- Vista de tablero Kanban con 3 columnas: "Recibido", "En Preparación / Control de Calidad",
+  "Listo". Cada tarjeta de pedido muestra items, tiempo transcurrido (con color: verde <
+  tiempo esperado, amarillo cerca del límite, rojo excedido) y botones de acción según su
+  estado (`Iniciar preparación`, `Marcar control de calidad`, `Marcar listo`).
+  Auto-refresh cada 10-15 segundos usando `setInterval` dentro de un `useEffect` (mismo patrón
+  que ya usa `OrderTrackingPage.tsx` en el frontend del cliente).
+- Sección "Cuellos de botella detectados" listando pedidos que excedieron el tiempo esperado.
+
+---
+
+## Módulo 4 — Dashboard Gerencial Integrado
+
+**Referencia del informe:** ítem 9. Une inventario, predicción de demanda, producción y
+ventas en una sola pantalla. SLA: actualización cada 5 segundos, acceso remoto.
+
+### Backend
+
+- **Servicio** `backend/src/services/managementDashboardService.ts` que **no reimplementa
+  lógica**, sino que agrega en paralelo (con `Promise.all`) los resultados de:
+  - `simulationService.simulateInventory()` (ya existe)
+  - `demandForecastService.forecastDemandByHour()` (nuevo, módulo 2 — recuerda que este ya
+    devuelve el campo `source` indicando si viene de un modelo ML entrenado o de fallback
+    heurístico; propaga ese campo hasta el dashboard integrado)
+  - `kitchenService.getKitchenBoard()` + `getBottlenecks()` (nuevo, módulo 3)
+  - Métricas de ventas ya calculadas en `admin.controller.ts` → `dashboardSummary` (reusa esa
+    función o expórtala como servicio si hace falta)
+  Devuelve un solo payload consolidado.
+- **Controlador + ruta**: `GET /api/admin/dashboard/integrated` en
+  `admin.controller.ts`/`admin.routes.ts` (puede vivir junto al `dashboardSummary` que ya
+  existe ahí, como una función hermana).
+
+### Frontend
+
+- Modifica la pestaña **"Dashboard"** ya existente en `AdminPage.tsx` (`DashboardTab`) para
+  que, además de las tarjetas y el gráfico de 7 días que ya tiene, incluya una segunda sección
+  "Vista Operativa en Tiempo Real" con:
+  - Mini-resumen de inventario crítico (top 3 productos en estado CRÍTICO)
+  - Mini-gráfico de demanda de las próximas horas
+  - Contador de pedidos en cocina por estado (Recibido / En Preparación / Listo) con badges
+  - Alertas de cuellos de botella si existen
+  Usa `setInterval` de ~15-30s (no hace falta cumplir literalmente el SLA de 5s del informe en
+  esta demo, pero documenta el intervalo elegido en un comentario).
+  Reutiliza los estilos `.card`, la paleta `kfc-red/kfc-gold`, y el mismo layout en grid que ya
+  usa `DashboardTab`.
+
+---
+
+## Reglas transversales para el agente
+
+1. **No rompas nada existente.** Antes de tocar `order.controller.ts`,
+   `simulationService.ts`, `admin.controller.ts`, `AdminPage.tsx` o `schema.prisma`, léelos
+   completos primero para entender los patrones ya usados (manejo de errores con `ApiError`,
+   convención `async/await` con `express-async-errors`, tipado de Prisma, estilo de los
+   componentes de React con Tailwind).
+2. **Migraciones de Prisma**: después de editar `schema.prisma`, genera la migración con
+   `npx prisma migrate dev --name add_operational_intelligence_modules` (no ejecutes
+   `db push` en producción).
+3. **Actualiza el seed** (`backend/prisma/seed.ts`) para que los 4 módulos tengan datos de
+   ejemplo desde el primer `docker-compose up`.
+4. **El Módulo 2 debe entrenar un modelo ML real sobre datos subidos, no simular que existe
+   uno.** Todo lo demás que sea heurístico (simulaciones existentes, fallback sin modelo
+   entrenado) debe seguir etiquetado como tal en la respuesta de la API y en la UI — no
+   mezcles ambos sin dejarlo explícito (usa el campo `source` propuesto en el Módulo 2).
+4b. **Archivos subidos**: agrega `backend/uploads/` a `.gitignore` (tanto los CSV originales
+    como los JSON de filas parseadas y cualquier artefacto de modelo grande). Valida tamaño
+    máximo de archivo en `multer` (ej. 10MB) para evitar subidas accidentales enormes.
+5. **Sigue la convención de idioma**: strings de UI y mensajes de error en español, nombres de
+   variables/funciones en inglés (igual que el resto del código ya generado).
+6. **Actualiza el `README.md`** agregando una sección "Módulos de Gestión Operativa
+   Inteligente" que documente los 4 nuevos submódulos, sus endpoints y qué pestañas nuevas
+   aparecen en `/admin`.
+7. Al terminar cada módulo, valida que compile: `npx tsc --noEmit` en `backend/` y
+   `npx tsc -b --noEmit` en `frontend/`, y corrige cualquier error de tipos antes de continuar
+   al siguiente módulo.
+
+---
+
+## Orden sugerido de implementación
+
+1. Prisma schema (todos los modelos nuevos de una sola vez, incluyendo `Dataset`,
+   `DemandModel`, `DemandForecast` del módulo 2) + migración + seed.
+2. Módulo 1 (Inventario) — es la base de la que depende el módulo 4.
+3. Módulo 3 (Cocina) — es independiente, se puede hacer en paralelo al 1.
+4. Módulo 2 (Predicción de demanda con ML):
+   a. Primero backend puro: `datasetService` (upload + validación de CSV) y prueba manual con
+      el CSV de ejemplo generado en el seed.
+   b. Luego `mlTrainingService`: entrenar y evaluar, verificar que las métricas (MAE/RMSE/R²)
+      se calculen correctamente antes de conectar la UI.
+   c. Luego `demandForecastService` con el fallback heurístico ya probado.
+   d. Al final, la UI de las 3 sub-secciones (Datasets / Entrenamiento / Predicciones).
+5. Módulo 4 (Dashboard integrado) — al final, porque consume los otros tres.
+6. Actualizar `AdminPage.tsx` con las pestañas nuevas + ampliar `DashboardTab`.
+7. Actualizar README, documentando también el esquema de CSV esperado para el módulo de ML.

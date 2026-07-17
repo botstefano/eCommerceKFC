@@ -428,6 +428,48 @@ async function main() {
   }
   console.log(`✅ ${promosData.length} promociones creadas`);
 
+  // ---------------- Suppliers ----------------
+  const suppliersData = [
+    { name: "Proveedora de Pollo S.A.", contact: "Juan Pérez", email: "juan@pollo.com", phone: "+51 444 111 222", leadTimeDays: 2 },
+    { name: "Papas del Perú SAC", contact: "María López", email: "maria@papas.com", phone: "+51 444 333 444", leadTimeDays: 3 },
+    { name: "Bebidas & Refrescos EIRL", contact: "Carlos Ruiz", email: "carlos@bebidas.com", phone: "+51 444 555 666", leadTimeDays: 2 },
+    { name: "Empaques KFC Proveedores", contact: "Ana García", email: "ana@empaques.com", phone: "+51 444 777 888", leadTimeDays: 4 },
+    { name: "Condimentos y Especias Ltd.", contact: "Pedro Sánchez", email: "pedro@condimentos.com", phone: "+51 444 999 000", leadTimeDays: 3 },
+  ];
+  for (const s of suppliersData) {
+    const existing = await prisma.supplier.findFirst({ where: { name: s.name } });
+    if (!existing) await prisma.supplier.create({ data: s });
+  }
+  console.log(`✅ ${suppliersData.length} proveedores creados`);
+
+  // ---------------- Stock Movements (historical) ----------------
+  const existingStockMovements = await prisma.stockMovement.count();
+  if (existingStockMovements === 0 && createdProducts.length > 0) {
+    for (const product of createdProducts.slice(0, 10)) {
+      // Create some historical stock movements for each product
+      const movementTypes = ["RESTOCK", "SALE", "ADJUSTMENT", "WASTE"];
+      for (let i = 0; i < 5; i++) {
+        const type = movementTypes[Math.floor(Math.random() * movementTypes.length)];
+        const quantity = type === "SALE" || type === "WASTE" ? -Math.floor(Math.random() * 10) - 1 : Math.floor(Math.random() * 20) + 5;
+        const daysAgo = Math.floor(Math.random() * 30);
+        const createdAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+        
+        await prisma.stockMovement.create({
+          data: {
+            productId: product.id,
+            type,
+            quantity,
+            reason: type === "SALE" ? "Venta histórica" : type === "RESTOCK" ? "Reabastecimiento" : type === "WASTE" ? "Merma" : "Ajuste de inventario",
+            createdAt,
+          },
+        });
+      }
+    }
+    console.log("✅ Movimientos de stock históricos creados");
+  } else {
+    console.log("ℹ️  Ya existen movimientos de stock, se omite la creación de movimientos históricos");
+  }
+
   // ---------------- Sample Orders (10) ----------------
   const allCustomers = [cliente, ...extraCustomers];
   const statuses: any[] = ["DELIVERED", "DELIVERED", "DELIVERED", "PENDING", "PREPARING", "ON_THE_WAY", "DELIVERED", "CANCELLED", "DELIVERED", "REFUNDED"];

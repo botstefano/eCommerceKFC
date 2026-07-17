@@ -11,6 +11,9 @@ import branchRoutes from "./branch.routes";
 import userRoutes from "./user.routes";
 import supportRoutes from "./support.routes";
 import adminRoutes from "./admin.routes";
+import inventoryRoutes from "./inventory.routes";
+import forecastRoutes from "./forecast.routes";
+import kitchenRoutes from "./kitchen.routes";
 
 const router = Router();
 
@@ -26,5 +29,8 @@ router.use("/branches", branchRoutes);
 router.use("/users", userRoutes);
 router.use("/support", supportRoutes);
 router.use("/admin", adminRoutes);
+router.use("/admin/inventory", inventoryRoutes);
+router.use("/admin/forecast", forecastRoutes);
+router.use("/admin/kitchen", kitchenRoutes);
 
 export default router;

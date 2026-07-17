@@ -7,6 +7,7 @@ import {
   simulationInventory,
   simulationStaffing,
   simulationDelivery,
+  integratedDashboard,
 } from "../controllers/admin.controller";
 import { requireAuth, requireAdmin } from "../middleware/auth";
 
@@ -14,6 +15,7 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 router.get("/dashboard", dashboardSummary);
+router.get("/dashboard/integrated", integratedDashboard);
 router.get("/simulations/ml-vs-no-ml", simulationMlVsNoMl);
 router.get("/simulations/ml-vs-no-ml/pdf", simulationMlVsNoMlPdf);
 router.get("/simulations/traffic", simulationTraffic);

@@ -9,19 +9,24 @@ import {
   Plus,
   Trash2,
   Pencil,
+  TrendingUp,
+  ChefHat,
 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import api, { API_URL } from "../services/api";
 import { Product, Order, Promotion } from "../types";
 import Loader from "../components/common/Loader";
 
-type Tab = "dashboard" | "products" | "orders" | "promotions" | "simulations";
+type Tab = "dashboard" | "products" | "orders" | "promotions" | "inventory" | "forecast" | "kitchen" | "simulations";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "products", label: "Productos", icon: Package },
   { id: "orders", label: "Pedidos", icon: ClipboardList },
   { id: "promotions", label: "Promociones", icon: Tag },
+  { id: "inventory", label: "Inventario", icon: Package },
+  { id: "forecast", label: "Predicción de Demanda", icon: TrendingUp },
+  { id: "kitchen", label: "Cocina en Tiempo Real", icon: ChefHat },
   { id: "simulations", label: "Simulaciones", icon: FlaskConical },
 ];
 
@@ -50,6 +55,9 @@ export default function AdminPage() {
       {tab === "products" && <ProductsTab />}
       {tab === "orders" && <OrdersTab />}
       {tab === "promotions" && <PromotionsTab />}
+      {tab === "inventory" && <InventoryTab />}
+      {tab === "forecast" && <ForecastTab />}
+      {tab === "kitchen" && <KitchenTab />}
       {tab === "simulations" && <SimulationsTab />}
     </div>
   );
@@ -58,9 +66,21 @@ export default function AdminPage() {
 // ============================= DASHBOARD =============================
 function DashboardTab() {
   const [summary, setSummary] = useState<any>(null);
+  const [integratedData, setIntegratedData] = useState<any>(null);
+
+  function loadSummary() {
+    api.get("/admin/dashboard").then(({ data }) => setSummary(data));
+  }
+
+  function loadIntegratedData() {
+    api.get("/admin/dashboard/integrated").then(({ data }) => setIntegratedData(data));
+  }
 
   useEffect(() => {
-    api.get("/admin/dashboard").then(({ data }) => setSummary(data));
+    loadSummary();
+    loadIntegratedData();
+    const interval = setInterval(loadIntegratedData, 30000); // Auto-refresh every 30 seconds
+    return () => clearInterval(interval);
   }, []);
 
   if (!summary) return <Loader />;
@@ -85,7 +105,7 @@ function DashboardTab() {
         ))}
       </div>
 
-      <div className="card p-5">
+      <div className="card p-5 mb-8">
         <p className="font-display font-semibold mb-3">Pedidos e ingresos (últimos 7 días)</p>
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={summary.last7Days}>
@@ -98,6 +118,126 @@ function DashboardTab() {
             <Line type="monotone" dataKey="revenue" stroke="#FFC72C" name="Ingresos (S/)" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Vista Operativa en Tiempo Real */}
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <p className="font-display font-semibold">Vista Operativa en Tiempo Real</p>
+          <p className="text-xs text-black/50">Auto-refresh cada 30s</p>
+        </div>
+
+        <div className="grid md:grid-cols-4 gap-4 mb-6">
+          {/* Inventory Critical */}
+          <div className="card p-4">
+            <p className="text-xs text-black/50 mb-2">Inventario Crítico</p>
+            {integratedData?.inventory?.criticalProducts?.length > 0 ? (
+              <div className="space-y-2">
+                {integratedData.inventory.criticalProducts.slice(0, 3).map((p: any) => (
+                  <div key={p.id} className="text-sm">
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-xs text-red-600">{p.stock} unidades</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-green-600">Sin alertas</p>
+            )}
+          </div>
+
+          {/* Demand Forecast */}
+          <div className="card p-4">
+            <p className="text-xs text-black/50 mb-2">Demanda (Próximas 4h)</p>
+            {integratedData?.demand?.nextHoursForecast ? (
+              <div className="space-y-1">
+                {integratedData.demand.nextHoursForecast.map((f: any) => (
+                  <div key={f.hour} className="flex justify-between text-sm">
+                    <span>{f.hour}:00</span>
+                    <span className="font-medium">{Math.round(f.predictedOrders)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-black/50">Cargando...</p>
+            )}
+            {integratedData?.demand?.source && (
+              <p className={`text-xs mt-2 ${
+                integratedData.demand.source === "ml_model" ? "text-blue-600" : "text-yellow-600"
+              }`}>
+                {integratedData.demand.source === "ml_model" ? "Modelo ML" : "Heurístico"}
+              </p>
+            )}
+          </div>
+
+          {/* Kitchen Counts */}
+          <div className="card p-4">
+            <p className="text-xs text-black/50 mb-2">Pedidos en Cocina</p>
+            {integratedData?.kitchen?.counts ? (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Recibido</span>
+                  <span className="bg-kfc-red text-white text-xs font-semibold px-2 py-1 rounded-full">
+                    {integratedData.kitchen.counts.pending}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">En preparación</span>
+                  <span className="bg-kfc-gold text-black text-xs font-semibold px-2 py-1 rounded-full">
+                    {integratedData.kitchen.counts.preparing}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Listo</span>
+                  <span className="bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full">
+                    {integratedData.kitchen.counts.ready}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-black/50">Cargando...</p>
+            )}
+          </div>
+
+          {/* Sales Today */}
+          <div className="card p-4">
+            <p className="text-xs text-black/50 mb-2">Ventas Hoy</p>
+            {integratedData?.sales ? (
+              <div className="space-y-2">
+                <div>
+                  <p className="text-xs text-black/50">Pedidos</p>
+                  <p className="font-display font-bold text-xl">{integratedData.sales.todayOrders}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-black/50">Ingresos</p>
+                  <p className="font-display font-bold text-xl">S/ {integratedData.sales.todayRevenue.toFixed(0)}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-black/50">Cargando...</p>
+            )}
+          </div>
+        </div>
+
+        {/* Bottlenecks Alert */}
+        {integratedData?.kitchen?.bottlenecks?.length > 0 && (
+          <div className="card p-4 bg-red-50 border border-red-200">
+            <p className="font-semibold text-red-700 mb-2">⚠️ Cuellos de botella detectados</p>
+            <div className="flex gap-4 text-sm">
+              <div>
+                <span className="text-red-900/50">Espera promedio:</span>
+                <span className="font-semibold ml-1">{integratedData.kitchen.avgWaitTime.toFixed(1)} min</span>
+              </div>
+              <div>
+                <span className="text-red-900/50">Preparación promedio:</span>
+                <span className="font-semibold ml-1">{integratedData.kitchen.avgPreparationTime.toFixed(1)} min</span>
+              </div>
+              <div>
+                <span className="text-red-900/50">Pedidos afectados:</span>
+                <span className="font-semibold ml-1">{integratedData.kitchen.bottlenecks.length}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -766,6 +906,774 @@ function DeliverySim() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================= INVENTORY =============================
+function InventoryTab() {
+  const [products, setProducts] = useState<any[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [stockMovements, setStockMovements] = useState<any[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [receivingOrderId, setReceivingOrderId] = useState<string | null>(null);
+  const [receivedQuantity, setReceivedQuantity] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+
+  function loadData() {
+    Promise.all([
+      api.get("/products").then(({ data }) => setProducts(data.products)),
+      api.get("/admin/inventory/purchase-orders").then(({ data }) => setPurchaseOrders(data.orders)),
+      api.get("/admin/inventory/movements").then(({ data }) => setStockMovements(data.movements)),
+    ]).finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function handleCheckReorder() {
+    await api.post("/admin/inventory/check-reorder");
+    loadData();
+  }
+
+  async function handleReceiveOrder() {
+    if (!receivingOrderId || receivedQuantity <= 0) return;
+    await api.post(`/admin/inventory/purchase-orders/${receivingOrderId}/receive`, { receivedQuantity });
+    setReceivingOrderId(null);
+    setReceivedQuantity(0);
+    loadData();
+  }
+
+  const statusColor: Record<string, string> = {
+    "CRÍTICO": "bg-red-100 text-red-700",
+    "ATENCIÓN": "bg-yellow-100 text-yellow-700",
+    OK: "bg-green-100 text-green-700",
+  };
+
+  const CRITICAL_THRESHOLD = 20;
+  const LEAD_TIME_DAYS = 3;
+
+  const productsWithStatus = products.map((p) => {
+    const avgDailySales = 1.5; // simplified calculation
+    const daysOfStockLeft = p.stock / avgDailySales;
+    const status = p.stock < CRITICAL_THRESHOLD || daysOfStockLeft < LEAD_TIME_DAYS ? "CRÍTICO" : daysOfStockLeft < LEAD_TIME_DAYS * 2 ? "ATENCIÓN" : "OK";
+    return { ...p, status, daysOfStockLeft };
+  });
+
+  const filteredMovements = selectedProductId
+    ? stockMovements.filter((m) => m.productId === selectedProductId)
+    : stockMovements.slice(0, 20);
+
+  const movementChartData = filteredMovements
+    .slice()
+    .reverse()
+    .map((m) => ({
+      date: new Date(m.createdAt).toLocaleDateString("es-PE"),
+      quantity: m.quantity,
+    }));
+
+  if (loading) return <Loader />;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <p className="font-display font-semibold">Gestión de Inventario</p>
+        <button onClick={handleCheckReorder} className="btn-primary text-sm py-2">
+          Revisar umbrales ahora
+        </button>
+      </div>
+
+      {/* Stock Table */}
+      <div className="card p-5 mb-6">
+        <p className="font-semibold mb-3">Estado del Stock</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-black/50 border-b border-black/10">
+                <th className="py-2">Producto</th>
+                <th>Categoría</th>
+                <th>Stock</th>
+                <th>Días de stock</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {productsWithStatus.map((p) => (
+                <tr key={p.id} className="border-b border-black/5">
+                  <td className="py-2 flex items-center gap-2">
+                    <img src={p.imageUrl} className="w-8 h-8 rounded object-cover" />
+                    {p.name}
+                  </td>
+                  <td>{p.category}</td>
+                  <td>{p.stock}</td>
+                  <td>{p.daysOfStockLeft.toFixed(1)}</td>
+                  <td>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColor[p.status]}`}>
+                      {p.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Purchase Orders */}
+      <div className="card p-5 mb-6">
+        <p className="font-semibold mb-3">Órdenes de Compra Pendientes</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-black/50 border-b border-black/10">
+                <th className="py-2">ID</th>
+                <th>Producto</th>
+                <th>Proveedor</th>
+                <th>Cantidad</th>
+                <th>Estado</th>
+                <th>Automática</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {purchaseOrders
+                .filter((po) => po.status === "PENDING" || po.status === "SENT")
+                .map((po) => (
+                  <tr key={po.id} className="border-b border-black/5">
+                    <td className="py-2 font-mono text-xs">{po.id.slice(0, 8)}</td>
+                    <td>{po.product?.name}</td>
+                    <td>{po.supplier?.name}</td>
+                    <td>{po.quantity}</td>
+                    <td>{po.status}</td>
+                    <td>{po.isAutomatic ? "Sí" : "No"}</td>
+                    <td>
+                      {receivingOrderId === po.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            value={receivedQuantity}
+                            onChange={(e) => setReceivedQuantity(Number(e.target.value))}
+                            className="input-field py-1 w-20 text-xs"
+                            placeholder="Cant."
+                          />
+                          <button onClick={handleReceiveOrder} className="btn-primary text-xs py-1">
+                            Confirmar
+                          </button>
+                          <button onClick={() => setReceivingOrderId(null)} className="btn-outline text-xs py-1">
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setReceivingOrderId(po.id);
+                            setReceivedQuantity(po.quantity);
+                          }}
+                          className="btn-primary text-xs py-1"
+                        >
+                          Recibir
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Stock Movements */}
+      <div className="card p-5 mb-6">
+        <div className="flex justify-between items-center mb-3">
+          <p className="font-semibold">Historial de Movimientos</p>
+          <select
+            value={selectedProductId || ""}
+            onChange={(e) => setSelectedProductId(e.target.value || null)}
+            className="input-field py-1 text-xs w-48"
+          >
+            <option value="">Todos los productos</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-black/50 border-b border-black/10">
+                <th className="py-2">Fecha</th>
+                <th>Producto</th>
+                <th>Tipo</th>
+                <th>Cantidad</th>
+                <th>Razón</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMovements.map((m) => (
+                <tr key={m.id} className="border-b border-black/5">
+                  <td className="py-2">{new Date(m.createdAt).toLocaleDateString("es-PE")}</td>
+                  <td>{m.product?.name}</td>
+                  <td>{m.type}</td>
+                  <td className={m.quantity < 0 ? "text-red-600" : "text-green-600"}>
+                    {m.quantity > 0 ? "+" : ""}{m.quantity}
+                  </td>
+                  <td>{m.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {selectedProductId && movementChartData.length > 0 && (
+          <div className="card p-4">
+            <p className="text-sm font-semibold mb-2">Gráfico de Movimientos</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={movementChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="quantity" stroke="#C8102E" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================= FORECAST =============================
+function ForecastTab() {
+  const [subTab, setSubTab] = useState<"datasets" | "training" | "predictions">("datasets");
+  const [datasets, setDatasets] = useState<any[]>([]);
+  const [models, setModels] = useState<any[]>([]);
+  const [forecastData, setForecastData] = useState<any>(null);
+  const [accuracy, setAccuracy] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [training, setTraining] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<string>("");
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<"linear_regression" | "random_forest">("linear_regression");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [previewData, setPreviewData] = useState<any>(null);
+
+  function loadDatasets() {
+    api.get("/admin/forecast/datasets").then(({ data }) => setDatasets(data.datasets));
+  }
+
+  function loadModels() {
+    api.get("/admin/forecast/models").then(({ data }) => setModels(data.models));
+  }
+
+  function loadForecast() {
+    api.get("/admin/forecast/hourly", { params: { date: selectedDate } }).then(({ data }) => {
+      setForecastData(data);
+      loadAccuracy();
+    });
+  }
+
+  function loadAccuracy() {
+    api.get("/admin/forecast/accuracy").then(({ data }) => setAccuracy(data));
+  }
+
+  useEffect(() => {
+    Promise.all([loadDatasets(), loadModels(), loadForecast()]).finally(() => setLoading(false));
+  }, []);
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("name", file.name);
+
+    try {
+      await api.post("/admin/forecast/datasets/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      loadDatasets();
+    } catch (error) {
+      console.error("Error uploading dataset:", error);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleTrainModel() {
+    if (!selectedDataset) return;
+
+    setTraining(true);
+    try {
+      await api.post("/admin/forecast/train", { datasetId: selectedDataset, algorithm: selectedAlgorithm });
+      loadModels();
+    } catch (error) {
+      console.error("Error training model:", error);
+    } finally {
+      setTraining(false);
+    }
+  }
+
+  async function handleActivateModel(modelId: string) {
+    await api.post(`/admin/forecast/models/${modelId}/activate`);
+    loadModels();
+  }
+
+  async function handlePreviewDataset(datasetId: string) {
+    const { data } = await api.get(`/admin/forecast/datasets/${datasetId}/preview`);
+    setPreviewData(data);
+  }
+
+  async function handleDeleteDataset(datasetId: string) {
+    if (!confirm("¿Eliminar este dataset?")) return;
+    await api.delete(`/admin/forecast/datasets/${datasetId}`);
+    loadDatasets();
+  }
+
+  if (loading) return <Loader />;
+
+  const SUB_TABS = [
+    { id: "datasets" as const, label: "Datasets" },
+    { id: "training" as const, label: "Entrenamiento" },
+    { id: "predictions" as const, label: "Predicciones" },
+  ];
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {SUB_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setSubTab(t.id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+              subTab === t.id ? "bg-kfc-red text-white" : "bg-black/5 hover:bg-black/10"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "datasets" && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <p className="font-display font-semibold">Datasets Subidos</p>
+            <label className="btn-primary text-sm py-2 flex items-center gap-1 cursor-pointer">
+              <Plus size={14} /> Subir Dataset
+              <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+            </label>
+          </div>
+
+          {uploading && <p className="text-sm text-black/50 mb-4">Subiendo...</p>}
+
+          <div className="overflow-x-auto mb-6">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-black/50 border-b border-black/10">
+                  <th className="py-2">Nombre</th>
+                  <th>Archivo</th>
+                  <th>Filas</th>
+                  <th>Estado</th>
+                  <th>Fecha</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {datasets.map((d) => (
+                  <tr key={d.id} className="border-b border-black/5">
+                    <td className="py-2">{d.name}</td>
+                    <td className="font-mono text-xs">{d.fileName}</td>
+                    <td>{d.rowCount}</td>
+                    <td>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                        d.status === "VALIDATED" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                      }`}>
+                        {d.status}
+                      </span>
+                    </td>
+                    <td>{new Date(d.createdAt).toLocaleDateString("es-PE")}</td>
+                    <td className="flex gap-2 justify-end py-2">
+                      <button onClick={() => handlePreviewDataset(d.id)} className="p-1.5 rounded hover:bg-black/5 text-xs">
+                        Ver
+                      </button>
+                      <button onClick={() => handleDeleteDataset(d.id)} className="p-1.5 rounded hover:bg-black/5 text-kfc-red text-xs">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {previewData && (
+            <div className="card p-5">
+              <div className="flex justify-between items-center mb-3">
+                <p className="font-semibold">Preview: {previewData.dataset.name}</p>
+                <button onClick={() => setPreviewData(null)} className="text-xs text-black/50">Cerrar</button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-black/50 border-b border-black/10">
+                      {Object.keys(previewData.rows[0] || {}).map((key) => (
+                        <th key={key} className="py-2">{key}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewData.rows.slice(0, 10).map((row: any, i: number) => (
+                      <tr key={i} className="border-b border-black/5">
+                        {Object.values(row).map((val: any, j: number) => (
+                          <td key={j} className="py-2">{val}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {subTab === "training" && (
+        <div>
+          <div className="card p-5 mb-6">
+            <p className="font-semibold mb-3">Entrenar Nuevo Modelo</p>
+            <div className="grid md:grid-cols-2 gap-3">
+              <select
+                value={selectedDataset}
+                onChange={(e) => setSelectedDataset(e.target.value)}
+                className="input-field"
+              >
+                <option value="">Seleccionar dataset...</option>
+                {datasets.filter((d) => d.status === "VALIDATED").map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <select
+                value={selectedAlgorithm}
+                onChange={(e) => setSelectedAlgorithm(e.target.value as any)}
+                className="input-field"
+              >
+                <option value="linear_regression">Regresión Lineal</option>
+                <option value="random_forest">Random Forest</option>
+              </select>
+            </div>
+            <button
+              onClick={handleTrainModel}
+              disabled={!selectedDataset || training}
+              className="btn-primary text-sm py-2 mt-4"
+            >
+              {training ? "Entrenando..." : "Entrenar Modelo"}
+            </button>
+          </div>
+
+          <div className="card p-5">
+            <p className="font-semibold mb-3">Histórico de Modelos</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-black/50 border-b border-black/10">
+                    <th className="py-2">Dataset</th>
+                    <th>Algoritmo</th>
+                    <th>MAE</th>
+                    <th>RMSE</th>
+                    <th>R²</th>
+                    <th>Estado</th>
+                    <th>Fecha</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((m) => (
+                    <tr key={m.id} className="border-b border-black/5">
+                      <td className="py-2">{m.dataset?.name}</td>
+                      <td>{m.algorithm}</td>
+                      <td>{m.mae?.toFixed(2)}</td>
+                      <td>{m.rmse?.toFixed(2)}</td>
+                      <td>{m.r2Score?.toFixed(3)}</td>
+                      <td>
+                        {m.isActive ? (
+                          <span className="bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">Activo</span>
+                        ) : (
+                          <span className="bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded-full">Inactivo</span>
+                        )}
+                      </td>
+                      <td>{new Date(m.trainedAt).toLocaleDateString("es-PE")}</td>
+                      <td>
+                        {!m.isActive && (
+                          <button onClick={() => handleActivateModel(m.id)} className="btn-primary text-xs py-1">
+                            Activar
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {subTab === "predictions" && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <p className="font-display font-semibold">Predicciones de Demanda</p>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="input-field py-1 text-sm"
+            />
+          </div>
+
+          <button onClick={loadForecast} className="btn-primary text-sm py-2 mb-4">
+            Generar Predicción
+          </button>
+
+          {forecastData && (
+            <>
+              <div className="card p-5 mb-6">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="font-semibold">Fuente de Predicción</p>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                    forecastData.source === "ml_model" ? "bg-blue-100 text-blue-700" : "bg-yellow-100 text-yellow-700"
+                  }`}>
+                    {forecastData.source === "ml_model" ? `Modelo ML (${forecastData.algorithm})` : "Modo heurístico (sin modelo entrenado)"}
+                  </span>
+                </div>
+                {accuracy && accuracy.mae && (
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-black/50">MAE</p>
+                      <p className="font-semibold">{accuracy.mae.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-black/50">RMSE</p>
+                      <p className="font-semibold">{accuracy.rmse.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-black/50">R²</p>
+                      <p className="font-semibold">{accuracy.r2Score.toFixed(3)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="card p-5">
+                <p className="font-semibold mb-3">Predicción por Hora</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={forecastData.forecasts.map((f: any) => ({ ...f, hora: `${f.hour}:00` }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                    <XAxis dataKey="hora" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="predictedOrders" stroke="#C8102E" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================= KITCHEN =============================
+function KitchenTab() {
+  const [board, setBoard] = useState<any[]>([]);
+  const [bottlenecks, setBottlenecks] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  function loadData() {
+    Promise.all([
+      api.get("/admin/kitchen/board").then(({ data }) => setBoard(data.board)),
+      api.get("/admin/kitchen/bottlenecks").then(({ data }) => setBottlenecks(data)),
+    ]).finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 15000); // Auto-refresh every 15 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  async function handleStartPreparation(orderId: string) {
+    await api.post(`/admin/kitchen/${orderId}/start`);
+    loadData();
+  }
+
+  async function handleQualityCheck(orderId: string) {
+    await api.post(`/admin/kitchen/${orderId}/quality-check`);
+    loadData();
+  }
+
+  async function handleMarkReady(orderId: string) {
+    await api.post(`/admin/kitchen/${orderId}/ready`);
+    loadData();
+  }
+
+  if (loading) return <Loader />;
+
+  const pendingOrders = board.filter((o) => o.status === "PENDING");
+  const preparingOrders = board.filter((o) => o.status === "PREPARING");
+  const readyOrders = board.filter((o) => o.status === "READY");
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <p className="font-display font-semibold">Cocina en Tiempo Real</p>
+        <p className="text-xs text-black/50">Auto-refresh cada 15s</p>
+      </div>
+
+      {/* Bottlenecks Section */}
+      {bottlenecks && bottlenecks.bottlenecks.length > 0 && (
+        <div className="card p-5 mb-6 bg-red-50 border border-red-200">
+          <p className="font-semibold text-red-700 mb-3">⚠️ Cuellos de botella detectados</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-red-900/50 border-b border-red-200">
+                  <th className="py-2">Pedido ID</th>
+                  <th>Tiempo espera</th>
+                  <th>Tiempo preparación</th>
+                  <th>Exceso</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bottlenecks.bottlenecks.map((b: any) => (
+                  <tr key={b.orderId} className="border-b border-red-100">
+                    <td className="py-2 font-mono text-xs">{b.orderId.slice(0, 8)}</td>
+                    <td>{b.waitTime} min</td>
+                    <td>{b.preparationTime} min</td>
+                    <td className="text-red-600 font-semibold">+{b.excessPercentage}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Kanban Board */}
+      <div className="grid md:grid-cols-3 gap-4">
+        {/* Pending Column */}
+        <div className="card p-4">
+          <div className="flex justify-between items-center mb-3">
+            <p className="font-semibold">Recibido</p>
+            <span className="bg-kfc-red text-white text-xs font-semibold px-2 py-1 rounded-full">
+              {pendingOrders.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {pendingOrders.map((order) => (
+              <div key={order.id} className="bg-white border border-black/10 rounded p-3">
+                <div className="flex justify-between items-start mb-2">
+                  <p className="font-mono text-xs text-black/50">{order.id.slice(0, 8)}</p>
+                  <p className="text-xs text-black/50">{order.timeSinceCreated} min</p>
+                </div>
+                <p className="text-sm font-medium mb-2">{order.user?.name}</p>
+                <div className="text-xs text-black/50 mb-3">
+                  {(order.items as any[]).map((item, i) => (
+                    <div key={i}>• {item.product?.name} x{item.quantity}</div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => handleStartPreparation(order.id)}
+                  className="btn-primary text-xs py-1.5 w-full"
+                >
+                  Iniciar preparación
+                </button>
+              </div>
+            ))}
+            {pendingOrders.length === 0 && (
+              <p className="text-sm text-black/50 text-center py-4">Sin pedidos</p>
+            )}
+          </div>
+        </div>
+
+        {/* Preparing Column */}
+        <div className="card p-4">
+          <div className="flex justify-between items-center mb-3">
+            <p className="font-semibold">En Preparación / Control de Calidad</p>
+            <span className="bg-kfc-gold text-black text-xs font-semibold px-2 py-1 rounded-full">
+              {preparingOrders.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {preparingOrders.map((order) => (
+              <div key={order.id} className="bg-white border border-black/10 rounded p-3">
+                <div className="flex justify-between items-start mb-2">
+                  <p className="font-mono text-xs text-black/50">{order.id.slice(0, 8)}</p>
+                  <p className="text-xs text-black/50">{order.timeSinceStarted} min</p>
+                </div>
+                <p className="text-sm font-medium mb-2">{order.user?.name}</p>
+                <div className="text-xs text-black/50 mb-3">
+                  {(order.items as any[]).map((item, i) => (
+                    <div key={i}>• {item.product?.name} x{item.quantity}</div>
+                  ))}
+                </div>
+                {order.qualityCheckedAt ? (
+                  <button
+                    onClick={() => handleMarkReady(order.id)}
+                    className="btn-primary text-xs py-1.5 w-full bg-green-600"
+                  >
+                    Marcar listo
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleQualityCheck(order.id)}
+                    className="btn-primary text-xs py-1.5 w-full"
+                  >
+                    Control de calidad
+                  </button>
+                )}
+              </div>
+            ))}
+            {preparingOrders.length === 0 && (
+              <p className="text-sm text-black/50 text-center py-4">Sin pedidos</p>
+            )}
+          </div>
+        </div>
+
+        {/* Ready Column */}
+        <div className="card p-4">
+          <div className="flex justify-between items-center mb-3">
+            <p className="font-semibold">Listo</p>
+            <span className="bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full">
+              {readyOrders.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {readyOrders.map((order) => (
+              <div key={order.id} className="bg-white border border-black/10 rounded p-3">
+                <div className="flex justify-between items-start mb-2">
+                  <p className="font-mono text-xs text-black/50">{order.id.slice(0, 8)}</p>
+                  <p className="text-xs text-green-600 font-semibold">✓ Listo</p>
+                </div>
+                <p className="text-sm font-medium mb-2">{order.user?.name}</p>
+                <div className="text-xs text-black/50 mb-3">
+                  {(order.items as any[]).map((item, i) => (
+                    <div key={i}>• {item.product?.name} x{item.quantity}</div>
+                  ))}
+                </div>
+                <p className="text-xs text-black/50 text-center">Esperando entrega</p>
+              </div>
+            ))}
+            {readyOrders.length === 0 && (
+              <p className="text-sm text-black/50 text-center py-4">Sin pedidos</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

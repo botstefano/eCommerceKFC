@@ -60,6 +60,11 @@ El cliente demo viene precargado con 300 puntos de lealtad (nivel Silver). Tambi
 - **Programa de lealtad**: acumulación de puntos (1 punto por sol gastado), niveles Silver/Gold/Platinum y canje de recompensas.
 - **Motor de recomendaciones**: algoritmo híbrido ponderado (filtrado colaborativo 30%, contenido 15%, categoría 20%, boost de selección 30%, boost de búsqueda 20%) más reglas contextuales de KFC (complementos, hora del día, tamaño de grupo, preferencia de picante).
 - **Panel de administración**: dashboard de métricas, CRUD de productos/promociones, gestión de pedidos, y 5 simulaciones de negocio (incluyendo reporte PDF descargable de "ML vs sin ML").
+- **Sistema Inteligente de Gestión Operativa KFC**: 4 módulos integrados:
+  - **Gestión de Inventario Automatizado**: pedidos automáticos a proveedores, descuento de stock en tiempo real, subida de abastecimiento, control de umbrales de reorden.
+  - **Predicción de Demanda con IA**: subida de datasets CSV, entrenamiento de modelos ML (regresión lineal/random forest), predicciones con fallback heurístico, métricas de precisión (MAE, RMSE, R²).
+  - **Control de Estados en Producción**: tablero de cocina en tiempo real con flujo Recibido → En Preparación → Control de Calidad → Listo, detección de cuellos de botella.
+  - **Dashboard Gerencial Integrado**: vista unificada que combina inventario crítico, predicción de demanda, estado de cocina y ventas en tiempo real.
 - **Nutrición y salud**: calculadora de calorías y filtros por alérgenos.
 - **Ubicaciones**: mapa interactivo con sucursales en Trujillo, Perú, y cálculo de distancia.
 - **Favoritos, historial de pedidos con reordenar, soporte (FAQ + chat simulado + tickets), autenticación JWT.**
@@ -109,3 +114,56 @@ VITE_GOOGLE_MAPS_API_KEY=...
 - El motor de recomendaciones normaliza los puntajes (min-max) y cachea resultados en Redis por 2 minutos para mejorar el rendimiento.
 - Las simulaciones de "tráfico por hora" y "personal en cocina" usan un modelo estadístico típico de QSR (picos de almuerzo y cena) combinado con datos reales de pedidos cuando están disponibles.
 - El reporte PDF de "ML vs sin ML" se genera en el backend con `pdfkit` y usa el ticket promedio (AOV) calculado de pedidos reales en la base de datos.
+
+## Sistema Inteligente de Gestión Operativa KFC
+
+### Esquema de CSV para Predicción de Demanda
+
+El módulo de predicción de demanda acepta archivos CSV con el siguiente esquema:
+
+| Columna | Tipo | Descripción |
+|---------|------|-------------|
+| `hour` | int (0-23) | Hora del día |
+| `dayOfWeek` | int (0-6) | Día de la semana (0=Domingo, 6=Sábado) |
+| `isWeekend` | int (0/1) | 1 si es fin de semana, 0 si no |
+| `isHoliday` | int (0/1) | 1 si es feriado, 0 si no |
+| `hasPromotion` | int (0/1) | 1 si hay promoción activa, 0 si no |
+| `temperatureC` | float | Temperatura en grados Celsius |
+| `ordersCount` | int | Número de pedidos (variable objetivo) |
+
+Ejemplo de fila:
+```csv
+hour,dayOfWeek,isWeekend,isHoliday,hasPromotion,temperatureC,ordersCount
+12,1,0,0,1,22.5,45
+```
+
+### Endpoints del Sistema Inteligente
+
+**Inventario:**
+- `GET /api/admin/inventory/stock` - Estado actual del inventario
+- `POST /api/admin/inventory/purchase-orders` - Crear orden de compra
+- `POST /api/admin/inventory/replenishment` - Registrar abastecimiento
+- `GET /api/admin/inventory/movements` - Historial de movimientos
+- `POST /api/admin/inventory/check-thresholds` - Revisar umbrales de reorden
+
+**Predicción de Demanda:**
+- `POST /api/admin/forecast/datasets/upload` - Subir dataset CSV
+- `GET /api/admin/forecast/datasets` - Listar datasets
+- `GET /api/admin/forecast/datasets/:id/preview` - Preview de dataset
+- `DELETE /api/admin/forecast/datasets/:id` - Eliminar dataset
+- `POST /api/admin/forecast/train` - Entrenar modelo
+- `GET /api/admin/forecast/models` - Listar modelos
+- `POST /api/admin/forecast/models/:id/activate` - Activar modelo
+- `GET /api/admin/forecast/hourly` - Predicción por hora
+- `GET /api/admin/forecast/by-product` - Predicción por producto
+- `GET /api/admin/forecast/accuracy` - Métricas de precisión
+
+**Cocina:**
+- `GET /api/admin/kitchen/board` - Tablero de cocina
+- `POST /api/admin/kitchen/:orderId/start` - Iniciar preparación
+- `POST /api/admin/kitchen/:orderId/quality-check` - Control de calidad
+- `POST /api/admin/kitchen/:orderId/ready` - Marcar listo
+- `GET /api/admin/kitchen/bottlenecks` - Análisis de cuellos de botella
+
+**Dashboard Integrado:**
+- `GET /api/admin/dashboard/integrated` - Vista operativa unificada

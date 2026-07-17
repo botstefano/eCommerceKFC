@@ -8,6 +8,7 @@ import {
   simulateDeliveryByZone,
 } from "../services/simulationService";
 import { streamMlVsNoMlPdf } from "../services/pdfReportService";
+import { getIntegratedDashboard } from "../services/managementDashboardService";
 
 export async function dashboardSummary(_req: Request, res: Response) {
   const [userCount, orderCount, productCount, orders, pendingTickets] = await Promise.all([
@@ -73,4 +74,9 @@ export async function simulationStaffing(req: Request, res: Response) {
 export async function simulationDelivery(req: Request, res: Response) {
   const isPeak = req.query.peak === "true";
   res.json({ zones: simulateDeliveryByZone(isPeak) });
+}
+
+export async function integratedDashboard(_req: Request, res: Response) {
+  const dashboard = await getIntegratedDashboard();
+  res.json(dashboard);
 }

@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import { createPaymentIntent } from "../services/stripeService";
 import { awardPointsForOrder } from "../services/loyaltyService";
+import { registerSale } from "../services/inventoryService";
 
 type CartItem = { productId: string; quantity: number };
 
@@ -97,6 +98,9 @@ export async function createOrder(req: Request, res: Response) {
   await Promise.all([
     ...lineItems.map((li) =>
       prisma.product.update({ where: { id: li.productId }, data: { stock: { decrement: li.quantity } } })
+    ),
+    ...lineItems.map((li) =>
+      registerSale(li.productId, li.quantity)
     ),
     prisma.cart.update({ where: { userId: (req as any).user!.userId }, data: { items: [] } }).catch(() => null),
     appliedPromotion ? prisma.promotion.update({ where: { id: appliedPromotion.id }, data: { usedCount: { increment: 1 } } }) : Promise.resolve(),

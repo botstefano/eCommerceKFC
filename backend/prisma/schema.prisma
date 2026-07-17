@@ -84,6 +84,8 @@ model Product {
   favorites       Favorite[]
   reviews         Review[]
   recommendations Recommendation[]
+  purchaseOrders  PurchaseOrder[]
+  stockMovements  StockMovement[]
 }
 
 model Cart {
@@ -109,6 +111,9 @@ model Order {
   specialInstructions  String?
   paymentMethod        String?
   pointsEarned         Int         @default(0)
+  qualityCheckedAt     DateTime?
+  kitchenStartedAt     DateTime?
+  kitchenReadyAt       DateTime?
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 }
@@ -180,4 +185,82 @@ model SupportTicket {
   message   String
   status    String   @default("OPEN")
   createdAt DateTime @default(now())
+}
+
+model Supplier {
+  id           String   @id @default(uuid())
+  name         String
+  contact      String?
+  email        String?
+  phone        String?
+  leadTimeDays Int      @default(3)
+  createdAt    DateTime @default(now())
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id          String   @id @default(uuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Int
+  status      String   @default("PENDING") // PENDING, SENT, RECEIVED, CANCELLED
+  isAutomatic Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  receivedAt  DateTime?
+}
+
+model StockMovement {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  type      String   // SALE, RESTOCK, ADJUSTMENT, WASTE
+  quantity  Int      // negativo para salidas, positivo para entradas
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model Dataset {
+  id          String   @id @default(uuid())
+  name        String
+  fileName    String
+  rowCount    Int
+  uploadedBy  String
+  columns     Json     // nombres de columnas detectadas
+  status      String   @default("UPLOADED") // UPLOADED, VALIDATED, INVALID
+  createdAt   DateTime @default(now())
+  trainedModels DemandModel[]
+}
+
+model DemandModel {
+  id              String   @id @default(uuid())
+  datasetId       String
+  dataset         Dataset  @relation(fields: [datasetId], references: [id])
+  algorithm       String   // "linear_regression" | "random_forest" | "heuristic_fallback"
+  version         Int      @default(1)
+  parameters      Json     // coeficientes/pesos serializados del modelo entrenado
+  featureColumns  Json     // qué columnas se usaron como input
+  targetColumn    String
+  mae             Float?   // Mean Absolute Error sobre el set de validación
+  rmse            Float?
+  r2Score         Float?
+  trainRowCount   Int
+  validationRowCount Int
+  isActive        Boolean  @default(false) // solo un modelo activo a la vez
+  trainedAt       DateTime @default(now())
+  forecasts       DemandForecast[]
+}
+
+model DemandForecast {
+  id              String   @id @default(uuid())
+  modelId         String?
+  model           DemandModel? @relation(fields: [modelId], references: [id])
+  forDate         DateTime
+  hour            Int
+  category        String?
+  predictedOrders Float
+  actualOrders    Int?
+  source          String   // "ml_model" or "heuristic_fallback"
+  createdAt       DateTime @default(now())
 }
